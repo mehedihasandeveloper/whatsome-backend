@@ -98,7 +98,6 @@
 # if __name__ == "__main__":
 #     app.run(debug=True)
 
-
 import os
 import pickle
 from flask import Flask, request, jsonify
@@ -112,29 +111,34 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.common.action_chains import ActionChains
 from urllib.parse import quote
 import time
+import threading
 
 app = Flask(__name__)
 
 COOKIE_FILE_PATH = 'whatsapp_cookies.pkl'
+driver = None  # Global driver to keep the session alive
 
 def initialize_driver():
-    driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()))
-    driver.get('https://web.whatsapp.com')
+    global driver
+    if driver is None:
+        # Start a new WebDriver session if it's not already running
+        driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()))
+        driver.get('https://web.whatsapp.com')
 
-    # Check if we have stored cookies
-    if os.path.exists(COOKIE_FILE_PATH):
-        with open(COOKIE_FILE_PATH, 'rb') as cookie_file:
-            cookies = pickle.load(cookie_file)
-            for cookie in cookies:
-                driver.add_cookie(cookie)
-        driver.refresh()
-        time.sleep(10)  # Give some time to refresh with the cookies
-    else:
-        time.sleep(15)  # Allow time for initial manual login
-        # Save cookies after first login
-        cookies = driver.get_cookies()
-        with open(COOKIE_FILE_PATH, 'wb') as cookie_file:
-            pickle.dump(cookies, cookie_file)
+        # Check if we have stored cookies and load them
+        if os.path.exists(COOKIE_FILE_PATH):
+            with open(COOKIE_FILE_PATH, 'rb') as cookie_file:
+                cookies = pickle.load(cookie_file)
+                for cookie in cookies:
+                    driver.add_cookie(cookie)
+            driver.refresh()
+            time.sleep(10)  # Give some time to refresh with the cookies
+        else:
+            time.sleep(15)  # Allow time for initial manual login
+            # Save cookies after first login
+            cookies = driver.get_cookies()
+            with open(COOKIE_FILE_PATH, 'wb') as cookie_file:
+                pickle.dump(cookies, cookie_file)
 
     return driver
 
@@ -166,10 +170,7 @@ def send_message():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
-    finally:
-        driver.quit()
 
-# working fine
 def send_picture(driver, numbers, image_path):
     for number in numbers:
         link = f'https://web.whatsapp.com/send/?phone={number}'
@@ -199,9 +200,11 @@ def api_send_picture():
 
     driver = initialize_driver()
     send_picture(driver, numbers, image_path)
-    driver.quit()
+    # driver.quit() # Removed quitting the driver to keep the session active
 
     return jsonify({"status": "success", "message": "Pictures sent successfully!"})
 
 if __name__ == "__main__":
+    threading.Thread(target=initialize_driver).start()  # Initialize driver when the app starts
     app.run(debug=True)
+
